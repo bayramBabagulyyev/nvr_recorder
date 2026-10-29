@@ -1,0 +1,12 @@
+services:
+  camera_recorder:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      TZ: Etc/UTC # set to your timezone (used for file names)
+    volumes:
+      - ./data:/data

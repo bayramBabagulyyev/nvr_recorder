@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera Recorder</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --fg:#1d2330; --muted:#6b7280; --line:#e3e6eb; --accent:#2563eb; --ok:#15803d; --warn:#b45309; --err:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12151b; --card:#1b1f27; --fg:#e6e8ec; --muted:#9aa1ad; --line:#2b313c; --accent:#5b8cff; --ok:#4ade80; --warn:#fbbf24; --err:#f87171; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; margin-right:auto; }
+  nav button { background:none; border:0; color:var(--muted); font:inherit; padding:6px 10px; cursor:pointer; border-radius:6px; }
+  nav button.active { color:var(--fg); background:var(--bg); font-weight:600; }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px; }
+  section { display:none; } section.active { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px 16px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  label.check { flex-direction:row; align-items:center; gap:8px; color:var(--fg); font-size:14px; }
+  input, select { font:inherit; padding:7px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button.btn { font:inherit; padding:7px 14px; border-radius:6px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  .msg { font-size:13px; } .ok { color:var(--ok); } .warn { color:var(--warn); } .err { color:var(--err); } .muted { color:var(--muted); }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+  .stat b { display:block; font-size:20px; } .stat span { color:var(--muted); font-size:12px; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-size:12px; color:var(--muted); font-weight:500; }
+  td input[type=text], td input:not([type]) { width:100%; min-width:120px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:99px; font-size:12px; border:1px solid currentColor; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📹 Camera Recorder</h1>
+  <nav>
+    <button data-tab="status" class="active">Status</button>
+    <button data-tab="nvr">NVR</button>
+    <button data-tab="storage">Storage</button>
+    <button data-tab="history">History</button>
+    <button data-tab="logs">Logs</button>
+  </nav>
+</header>
+<main>
+  <section id="status" class="active">
+    <div class="card">
+      <div class="row" style="margin:0 0 14px">
+        <h2 style="margin:0;margin-right:auto">Overview</h2>
+        <span id="recState"></span>
+        <button class="btn primary" id="btnStart">Start recording</button>
+        <button class="btn" id="btnStop">Stop</button>
+        <button class="btn" id="btnSync">Upload now</button>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+    <div class="card"><h2>Channels</h2><div class="table-wrap"><table id="chStatus"></table></div></div>
+  </section>
+
+  <section id="nvr">
+    <div class="card">
+      <h2>UNV NVR connection</h2>
+      <div class="grid">
+        <label>Host / IP<input id="nvr.host" placeholder="192.168.1.10"></label>
+        <label>RTSP port<input id="nvr.rtspPort" type="number"></label>
+        <label>Username<input id="nvr.username" autocomplete="off"></label>
+        <label>Password<input id="nvr.password" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnTest">Test connection</button>
+        <button class="btn" id="btnDetect">Detect channels</button>
+        <span class="msg" id="nvrMsg"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Channels to clone</h2>
+      <p class="muted" style="margin-top:0">Use “Detect channels” to fill this list. Custom URL is optional — e.g. point straight at a camera so recording continues even if the NVR is gone.</p>
+      <div class="table-wrap"><table id="chTable"></table></div>
+      <div class="row"><button class="btn" id="btnAddCh">+ Add channel</button></div>
+    </div>
+    <div class="row"><button class="btn primary save">Save</button><span class="msg saveMsg"></span></div>
+  </section>
+
+  <section id="storage">
+    <div class="card">
+      <h2>Recording &amp; local storage</h2>
+      <div class="grid">
+        <label>Segment length (minutes)<input id="recording.segmentMinutes" type="number" min="1" max="60"></label>
+        <label>Local folder<input id="recording.localDir"></label>
+        <label>Local TTL (days)<input id="recording.localTtlDays" type="number" min="1"></label>
+        <label class="check"><input id="recording.deleteLocalAfterUpload" type="checkbox"> Delete local copy after upload</label>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Nextcloud backup</h2>
+      <div class="grid">
+        <label class="check"><input id="nextcloud.enabled" type="checkbox"> Enable Nextcloud upload</label>
+        <label>Nextcloud URL<input id="nextcloud.url" placeholder="https://cloud.example.com"></label>
+        <label>Username<input id="nextcloud.username" autocomplete="off"></label>
+        <label>App password<input id="nextcloud.password" type="password" autocomplete="new-password"></label>
+        <label>Remote folder<input id="nextcloud.remoteDir"></label>
+        <label>Nextcloud TTL (days)<input id="nextcloud.ttlDays" type="number" min="1"></label>
+      </div>
+      <div class="row"><button class="btn" id="btnNcTest">Test Nextcloud</button><span class="msg" id="ncMsg"></span></div>
+    </div>
+    <div class="row"><button class="btn primary save">Save</button><span class="msg saveMsg"></span></div>
+  </section>
+
+  <section id="history">
+    <div class="card">
+      <div class="row" style="margin:0 0 14px">
+        <h2 style="margin:0;margin-right:auto">Backup history</h2>
+        <select id="histCh"><option value="">All channels</option></select>
+        <button class="btn" id="histPrev">‹</button><span id="histPage" class="muted"></span><button class="btn" id="histNext">›</button>
+      </div>
+      <div class="table-wrap"><table id="histTable"></table></div>
+    </div>
+  </section>
+
+  <section id="logs">
+    <div class="card"><h2>Events</h2><div class="table-wrap"><table id="logTable"></table></div></div>
+  </section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const fmtBytes = (n) => { n = Number(n) || 0; const u = ['B','KB','MB','GB','TB']; let i = 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; };
+const fmtTime = (t) => t ? new Date(t).toLocaleString() : '—';
+const api = async (method, url, body) => {
+  const r = await fetch(url, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body && JSON.stringify(body) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+};
+let config;
+const FIELDS = ['nvr.host','nvr.rtspPort','nvr.username','nvr.password','recording.segmentMinutes','recording.localDir','recording.localTtlDays',
+  'recording.deleteLocalAfterUpload','nextcloud.enabled','nextcloud.url','nextcloud.username','nextcloud.password','nextcloud.remoteDir','nextcloud.ttlDays'];
+
+// Tabs
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('nav button, section').forEach((e) => e.classList.remove('active'));
+  b.classList.add('active'); $('#' + b.dataset.tab).classList.add('active');
+  ({ status: loadStatus, history: loadHistory, logs: loadLogs })[b.dataset.tab]?.();
+});
+
+// Config form
+function fillForm() {
+  for (const f of FIELDS) {
+    const [s, k] = f.split('.'); const el = document.getElementById(f);
+    if (el.type === 'checkbox') el.checked = config[s][k]; else el.value = config[s][k];
+  }
+  renderChannels();
+}
+function readForm() {
+  const c = structuredClone(config);
+  for (const f of FIELDS) {
+    const [s, k] = f.split('.'); const el = document.getElementById(f);
+    c[s][k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value.trim();
+  }
+  c.nvr.channels = [...document.querySelectorAll('#chTable tbody tr')].map((tr) => ({
+    id: Number(tr.querySelector('[name=id]').value),
+    name: tr.querySelector('[name=name]').value.trim(),
+    enabled: tr.querySelector('[name=enabled]').checked,
+    stream: tr.querySelector('[name=stream]').value,
+    url: tr.querySelector('[name=url]').value.trim() || undefined,
+  })).filter((ch) => ch.id > 0);
+  return c;
+}
+function renderChannels() {
+  $('#chTable').innerHTML = '<thead><tr><th>Record</th><th>Ch #</th><th>Name</th><th>Stream</th><th>Custom RTSP URL</th><th>Info</th><th></th></tr></thead><tbody>' +
+    config.nvr.channels.map((ch) => `<tr>
+      <td><input type="checkbox" name="enabled" ${ch.enabled ? 'checked' : ''}></td>
+      <td><input name="id" type="number" min="1" value="${ch.id}" style="width:70px"></td>
+      <td><input name="name" value="${esc(ch.name)}"></td>
+      <td><select name="stream"><option value="main" ${ch.stream === 'main' ? 'selected' : ''}>Main (full quality)</option><option value="sub" ${ch.stream === 'sub' ? 'selected' : ''}>Sub (small)</option></select></td>
+      <td><input name="url" value="${esc(ch.url)}" placeholder="(use NVR)"></td>
+      <td class="muted">${esc(ch.info)}</td>
+      <td><button class="btn" onclick="this.closest('tr').remove()">✕</button></td></tr>`).join('') + '</tbody>';
+  $('#histCh').innerHTML = '<option value="">All channels</option>' + config.nvr.channels.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+$('#btnAddCh').onclick = () => {
+  config = readForm();
+  const id = Math.max(0, ...config.nvr.channels.map((c) => c.id)) + 1;
+  config.nvr.channels.push({ id, name: `Camera ${id}`, enabled: true, stream: 'main' });
+  renderChannels();
+};
+async function busy(btn, msgEl, fn) {
+  btn.disabled = true; msgEl.className = 'msg muted'; msgEl.textContent = 'Working…';
+  try { await fn(); } catch (e) { msgEl.className = 'msg err'; msgEl.textContent = e.message; } finally { btn.disabled = false; }
+}
+document.querySelectorAll('.save').forEach((btn) => btn.onclick = () => {
+  const msg = btn.parentElement.querySelector('.saveMsg');
+  busy(btn, msg, async () => { config = await api('PUT', '/api/config', readForm()); fillForm(); msg.className = 'msg ok'; msg.textContent = 'Saved'; });
+});
+$('#btnTest').onclick = () => busy($('#btnTest'), $('#nvrMsg'), async () => {
+  const r = await api('POST', '/api/nvr/test', { nvr: readForm().nvr, channel: 1 });
+  $('#nvrMsg').className = 'msg ' + (r.ok ? 'ok' : 'err');
+  $('#nvrMsg').textContent = r.ok ? `Connected — channel 1: ${r.video}${r.audio ? ', audio ' + r.audio : ''}` : r.error;
+});
+$('#btnDetect').onclick = () => busy($('#btnDetect'), $('#nvrMsg'), async () => {
+  $('#nvrMsg').textContent = 'Probing channels 1–32, this can take a minute…';
+  const form = readForm();
+  const found = await api('POST', '/api/nvr/detect', { nvr: form.nvr, max: 32 });
+  const existing = new Map(form.nvr.channels.map((c) => [c.id, c]));
+  config = form;
+  config.nvr.channels = found.map((f) => ({ ...(existing.get(f.id) ?? { id: f.id, name: `Camera ${f.id}`, enabled: true, stream: 'main' }), info: f.video }));
+  renderChannels();
+  $('#nvrMsg').className = 'msg ' + (found.length ? 'ok' : 'err');
+  $('#nvrMsg').textContent = found.length ? `Found ${found.length} channel(s). Review and press Save.` : 'No channels answered — check host, port and credentials.';
+});
+$('#btnNcTest').onclick = () => busy($('#btnNcTest'), $('#ncMsg'), async () => {
+  const r = await api('POST', '/api/nextcloud/test', { nextcloud: readForm().nextcloud });
+  $('#ncMsg').className = 'msg ' + (r.ok ? 'ok' : 'err');
+  $('#ncMsg').textContent = r.ok ? 'Nextcloud OK — folder is writable' : r.error;
+});
+
+// Status
+const STATE_CLASS = { recording: 'ok', starting: 'muted', retrying: 'warn', stopped: 'muted' };
+async function loadStatus() {
+  const s = await api('GET', '/api/status');
+  $('#recState').innerHTML = s.recording ? '<span class="pill ok">Recording</span>' : '<span class="pill muted">Stopped</span>';
+  const t = s.totals;
+  $('#stats').innerHTML = [
+    [s.channels.filter((c) => c.state === 'recording').length + ' / ' + s.channels.length, 'channels recording'],
+    [fmtBytes(t.localBytes), 'on local disk'], [fmtBytes(t.remoteBytes), 'on Nextcloud'],
+    [t.queued ?? 0, 'segments waiting for upload'], [fmtTime(t.lastUpload), 'last upload'],
+  ].map(([v, l]) => `<div class="stat"><b>${esc(v)}</b><span>${l}</span></div>`).join('');
+  $('#chStatus').innerHTML = '<tr><th>Channel</th><th>State</th><th>Since</th><th>Last segment</th><th>Last error</th></tr>' +
+    (s.channels.length ? s.channels.map((c) => `<tr><td>${esc(c.name)} <span class="muted">#${c.id}</span></td>
+      <td><span class="pill ${STATE_CLASS[c.state]}">${c.state}</span></td><td>${fmtTime(c.since)}</td>
+      <td>${fmtTime(c.lastSegmentAt)}</td><td class="err" style="white-space:normal">${esc(c.lastError)}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="muted">Not recording. Configure the NVR, then press Start recording.</td></tr>');
+}
+$('#btnStart').onclick = async () => { await api('POST', '/api/recording/start'); loadStatus(); };
+$('#btnStop').onclick = async () => { await api('POST', '/api/recording/stop'); loadStatus(); };
+$('#btnSync').onclick = async () => { await api('POST', '/api/sync'); setTimeout(loadStatus, 1500); };
+
+// History
+let histPage = 0;
+const REMOTE_CLASS = { uploaded: 'ok', pending: 'muted', failed: 'err', deleted: 'muted' };
+async function loadHistory() {
+  const { rows } = await api('GET', `/api/history?page=${histPage}&channel=${$('#histCh').value}`);
+  const name = (id) => config.nvr.channels.find((c) => c.id === id)?.name ?? `#${id}`;
+  $('#histPage').textContent = `page ${histPage + 1}`;
+  $('#histTable').innerHTML = '<tr><th>Start</th><th>Channel</th><th>Size</th><th>Local</th><th>Nextcloud</th><th>Uploaded</th><th>Note</th></tr>' +
+    (rows.map((r) => `<tr><td>${fmtTime(r.started_at)}</td><td>${esc(name(r.channel))}</td><td>${fmtBytes(r.size)}</td>
+      <td>${r.local_deleted ? '<span class="muted">removed</span>' : '<span class="ok">kept</span>'}</td>
+      <td><span class="pill ${REMOTE_CLASS[r.remote_status]}">${r.remote_status}</span></td><td>${fmtTime(r.uploaded_at)}</td>
+      <td class="muted" title="${esc(r.file)}">${esc(r.error ?? r.remote_path ?? '')}</td></tr>`).join('') ||
+      '<tr><td colspan="7" class="muted">No recordings yet.</td></tr>');
+}
+$('#histCh').onchange = () => { histPage = 0; loadHistory(); };
+$('#histPrev').onclick = () => { histPage = Math.max(0, histPage - 1); loadHistory(); };
+$('#histNext').onclick = () => { histPage++; loadHistory(); };
+
+async function loadLogs() {
+  const rows = await api('GET', '/api/events');
+  $('#logTable').innerHTML = '<tr><th>Time</th><th>Level</th><th>Message</th></tr>' + rows.map((r) =>
+    `<tr><td>${fmtTime(r.ts)}</td><td class="${r.level === 'info' ? 'muted' : r.level === 'warn' ? 'warn' : 'err'}">${r.level}</td>
+     <td style="white-space:normal">${esc(r.message)}</td></tr>`).join('');
+}
+
+(async () => {
+  config = await api('GET', '/api/config');
+  fillForm();
+  loadStatus();
+  setInterval(() => $('#status').classList.contains('active') && loadStatus(), 5000);
+})();
+</script>
+</body>
+</html>
