@@ -69,9 +69,11 @@
         <label>RTSP port<input id="nvr.rtspPort" type="number"></label>
         <label>Username<input id="nvr.username" autocomplete="off"></label>
         <label>Password<input id="nvr.password" type="password" autocomplete="new-password"></label>
+        <label>Web / API URL (for motion events)<input id="nvr.apiUrl" placeholder="http://<host>"></label>
       </div>
       <div class="row">
         <button class="btn" id="btnTest">Test connection</button>
+        <button class="btn" id="btnApiTest">Test API</button>
         <button class="btn" id="btnDetect">Detect channels</button>
         <span class="msg" id="nvrMsg"></span>
       </div>
@@ -89,11 +91,21 @@
     <div class="card">
       <h2>Recording &amp; local storage</h2>
       <div class="grid">
+        <label>Keep
+          <select id="recording.mode">
+            <option value="continuous">Everything (continuous)</option>
+            <option value="motion">Only segments with motion (NVR motion detection)</option>
+          </select>
+        </label>
+        <label>Motion: keep seconds before<input id="recording.motionPreSeconds" type="number" min="0"></label>
+        <label>Motion: keep seconds after<input id="recording.motionPostSeconds" type="number" min="0"></label>
         <label>Segment length (minutes)<input id="recording.segmentMinutes" type="number" min="1" max="60"></label>
         <label>Local folder<input id="recording.localDir"></label>
         <label>Local TTL (days)<input id="recording.localTtlDays" type="number" min="1"></label>
         <label class="check"><input id="recording.deleteLocalAfterUpload" type="checkbox"> Delete local copy after upload</label>
       </div>
+      <p class="muted" style="margin-bottom:0">Motion mode still records continuously, then deletes finished segments the NVR reports no motion for.
+        Segments are kept if the NVR can't be asked (offline/stolen) or has no recording for that time. Shorter segments (2 min) save more space.</p>
     </div>
     <div class="card">
       <h2>Nextcloud backup</h2>
@@ -137,7 +149,7 @@ const api = async (method, url, body) => {
   return r.json();
 };
 let config;
-const FIELDS = ['nvr.host','nvr.rtspPort','nvr.username','nvr.password','recording.segmentMinutes','recording.localDir','recording.localTtlDays',
+const FIELDS = ['nvr.host','nvr.rtspPort','nvr.username','nvr.password','nvr.apiUrl','recording.mode','recording.motionPreSeconds','recording.motionPostSeconds','recording.segmentMinutes','recording.localDir','recording.localTtlDays',
   'recording.deleteLocalAfterUpload','nextcloud.enabled','nextcloud.url','nextcloud.username','nextcloud.password','nextcloud.remoteDir','nextcloud.ttlDays'];
 
 // Tabs
@@ -201,6 +213,11 @@ $('#btnTest').onclick = () => busy($('#btnTest'), $('#nvrMsg'), async () => {
   $('#nvrMsg').className = 'msg ' + (r.ok ? 'ok' : 'err');
   $('#nvrMsg').textContent = r.ok ? `Connected — channel 1: ${r.video}${r.audio ? ', audio ' + r.audio : ''}` : r.error;
 });
+$('#btnApiTest').onclick = () => busy($('#btnApiTest'), $('#nvrMsg'), async () => {
+  const r = await api('POST', '/api/nvr/api-test', { nvr: readForm().nvr });
+  $('#nvrMsg').className = 'msg ' + (r.ok ? 'ok' : 'err');
+  $('#nvrMsg').textContent = r.ok ? `API OK — ${r.model}, firmware ${r.firmware}` : r.error;
+});
 $('#btnDetect').onclick = () => busy($('#btnDetect'), $('#nvrMsg'), async () => {
   $('#nvrMsg').textContent = 'Probing channels 1–32, this can take a minute…';
   const form = readForm();
@@ -241,7 +258,7 @@ $('#btnSync').onclick = async () => { await api('POST', '/api/sync'); setTimeout
 
 // History
 let histPage = 0;
-const REMOTE_CLASS = { uploaded: 'ok', pending: 'muted', failed: 'err', deleted: 'muted' };
+const REMOTE_CLASS = { uploaded: 'ok', pending: 'muted', failed: 'err', deleted: 'muted', skipped: 'muted' };
 async function loadHistory() {
   const { rows } = await api('GET', `/api/history?page=${histPage}&channel=${$('#histCh').value}`);
   const name = (id) => config.nvr.channels.find((c) => c.id === id)?.name ?? `#${id}`;

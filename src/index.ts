@@ -5,6 +5,7 @@ import path from 'node:path';
 import { getConfig, loadConfig, maskedConfig, saveConfig, SECRET_MASK, type Config } from './config.ts';
 import { db, logEvent } from './db.ts';
 import { Nextcloud } from './nextcloud.ts';
+import { deviceInfo } from './lapi.ts';
 import { detectChannels, probe, rtspUrl } from './nvr.ts';
 import { recorders } from './recorder.ts';
 import { resetNextcloud, startSyncLoops, uploadPending } from './sync.ts';
@@ -108,6 +109,14 @@ app.post('/api/nvr/test', async (req) =>
 app.post('/api/nvr/detect', async (req) =>
   detectChannels(withSavedPassword(req.body.nvr), Math.min(req.body.max ?? 32, 64)),
 );
+
+app.post('/api/nvr/api-test', async (req) => {
+  try {
+    return { ok: true, ...(await deviceInfo(withSavedPassword(req.body.nvr))) };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+});
 
 app.post('/api/nextcloud/test', async (req) => {
   const nc: Config['nextcloud'] = req.body.nextcloud;

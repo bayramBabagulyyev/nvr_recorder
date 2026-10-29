@@ -2,14 +2,16 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { DATA_DIR } from './config.ts';
 
-export type RemoteStatus = 'pending' | 'uploaded' | 'failed' | 'deleted';
+export type RemoteStatus = 'pending' | 'uploaded' | 'failed' | 'deleted' | 'skipped';
 
 export interface Segment {
   id: number;
   channel: number;
   file: string; // absolute local path
   started_at: number; // ms epoch
+  ended_at: number | null; // ms epoch
   size: number;
+  motion: number | null; // motion mode: 1 = keep, 0 = no motion, null = not checked yet
   local_deleted: number;
   remote_status: RemoteStatus;
   remote_path: string | null;
@@ -45,6 +47,11 @@ db.exec(`
   );
 `);
 
+// Columns added after the first release.
+const columns = (db.prepare('PRAGMA table_info(segments)').all() as { name: string }[]).map((c) => c.name);
+if (!columns.includes('ended_at')) db.exec('ALTER TABLE segments ADD COLUMN ended_at INTEGER');
+if (!columns.includes('motion')) db.exec('ALTER TABLE segments ADD COLUMN motion INTEGER');
+
 let lastMessage = '';
 
 /** Persistent log shown in the panel. Consecutive duplicates are dropped to avoid retry spam. */
@@ -56,9 +63,9 @@ export function logEvent(level: 'info' | 'warn' | 'error', message: string): voi
   db.prepare('DELETE FROM events WHERE id <= (SELECT MAX(id) - 2000 FROM events)').run();
 }
 
-export function addSegment(channel: number, file: string, startedAt: number, size: number): void {
-  db.prepare('INSERT OR IGNORE INTO segments (channel, file, started_at, size) VALUES (?, ?, ?, ?)').run(
-    channel, file, startedAt, size,
+export function addSegment(channel: number, file: string, startedAt: number, endedAt: number, size: number): void {
+  db.prepare('INSERT OR IGNORE INTO segments (channel, file, started_at, ended_at, size) VALUES (?, ?, ?, ?, ?)').run(
+    channel, file, startedAt, endedAt, size,
   );
 }
 

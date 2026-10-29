@@ -23,10 +23,16 @@ export interface Config {
     rtspPort: number;
     username: string;
     password: string;
+    /** Base URL of the NVR web/LAPI interface; defaults to http://<host>. */
+    apiUrl: string;
     channels: Channel[];
   };
   recording: {
     enabled: boolean;
+    /** continuous: keep everything. motion: keep only segments overlapping NVR motion events. */
+    mode: 'continuous' | 'motion';
+    motionPreSeconds: number;
+    motionPostSeconds: number;
     segmentMinutes: number;
     localDir: string;
     localTtlDays: number;
@@ -43,9 +49,12 @@ export interface Config {
 }
 
 const defaults = (): Config => ({
-  nvr: { host: '', rtspPort: 554, username: 'admin', password: '', channels: [] },
+  nvr: { host: '', rtspPort: 554, username: 'admin', password: '', apiUrl: '', channels: [] },
   recording: {
     enabled: false,
+    mode: 'continuous',
+    motionPreSeconds: 5,
+    motionPostSeconds: 30,
     segmentMinutes: 10,
     localDir: path.join(DATA_DIR, 'recordings'),
     localTtlDays: 7,

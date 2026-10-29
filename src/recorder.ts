@@ -30,7 +30,7 @@ const localName = (t: number): string => {
 
 function registerSegment(channel: number, file: string): void {
   if (!fs.existsSync(file)) return;
-  const { size } = fs.statSync(file);
+  const { size, mtimeMs } = fs.statSync(file);
   if (size === 0) return void fs.unlinkSync(file);
   const startedAt = parseStart(file);
   if (file.endsWith('Z.mp4')) {
@@ -41,7 +41,7 @@ function registerSegment(channel: number, file: string): void {
       file = renamed;
     }
   }
-  addSegment(channel, file, startedAt, size);
+  addSegment(channel, file, startedAt, mtimeMs, size);
 }
 
 class ChannelRecorder {
