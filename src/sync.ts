@@ -37,8 +37,16 @@ export async function uploadPending(): Promise<void> {
       .prepare(`SELECT * FROM segments WHERE remote_status IN ('pending','failed') AND local_deleted = 0
                 ORDER BY started_at LIMIT 50`)
       .all() as unknown as Segment[];
+    let missing = 0;
     for (const seg of pending) {
       if (!getConfig().nextcloud.enabled) break;
+      // A file deleted or lost outside the app can never be uploaded; drop it instead of blocking the queue.
+      if (!fs.existsSync(seg.file)) {
+        db.prepare(`UPDATE segments SET local_deleted = 1, remote_status = 'failed', error = 'local file missing'
+                    WHERE id = ?`).run(seg.id);
+        missing++;
+        continue;
+      }
       const remote = remotePathFor(seg);
       try {
         await nextcloud().upload(seg.file, remote);
@@ -53,6 +61,7 @@ export async function uploadPending(): Promise<void> {
         break; // likely a connectivity problem; try again next cycle
       }
     }
+    if (missing) logEvent('warn', `Skipped ${missing} segment(s) whose local file no longer exists`);
   } finally {
     uploading = false;
   }
