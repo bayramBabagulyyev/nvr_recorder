@@ -16,6 +16,10 @@ if (!ADMIN_PASSWORD) {
   console.error('ADMIN_PASSWORD is not set. Copy .env.example to .env and set a password for the web panel.');
   process.exit(1);
 }
+// Extra origins the panel is opened from, e.g. through a reverse proxy that rewrites the Host header.
+const ALLOWED_ORIGINS = new Set(
+  (process.env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean),
+);
 
 loadConfig();
 
@@ -48,6 +52,13 @@ const server = http.createServer(async (req, res) => {
   // Other sites can't add one without a CORS preflight, which this server never approves.
   if (req.method !== 'GET' && req.headers['x-requested-with'] !== 'camera_recorder') {
     res.writeHead(403).end('Forbidden');
+    return;
+  }
+  // Second layer: if the browser says where the request came from, it must be the panel itself
+  // (same host) or an origin listed in ALLOWED_ORIGINS.
+  const origin = req.headers.origin;
+  if (req.method !== 'GET' && origin && !ALLOWED_ORIGINS.has(origin) && URL.parse(origin)?.host !== req.headers.host) {
+    res.writeHead(403).end('Forbidden origin');
     return;
   }
   const url = new URL(req.url ?? '/', 'http://localhost');
