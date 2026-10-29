@@ -1,0 +1,21 @@
+# Run without Docker, using the host's ffmpeg (apt install ffmpeg) and Node.js >= 24.
+#   cp deploy/camera_recorder.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now camera_recorder
+#   journalctl -u camera_recorder -f
+[Unit]
+Description=camera_recorder (UNV NVR backup to disk + Nextcloud)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/srv/nvr_recorder
+# Adjust if node lives elsewhere (check with: which node)
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/index.ts
+Restart=always
+RestartSec=5
+# SIGTERM lets the app stop ffmpeg cleanly so the last segment is saved
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

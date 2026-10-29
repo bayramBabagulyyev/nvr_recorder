@@ -10,9 +10,6 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "dependencies": {
-    "fastify": "^5.12.7"
-  },
   "devDependencies": {
     "@types/node": "^24.19.2",
     "typescript": "^5.9.3"

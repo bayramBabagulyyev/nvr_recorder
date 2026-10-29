@@ -11,19 +11,37 @@ export type RecorderState = 'stopped' | 'starting' | 'recording' | 'retrying';
 export const channelDir = (id: number): string =>
   path.join(getConfig().recording.localDir, `ch${String(id).padStart(2, '0')}`);
 
-/** Segment files are named by ffmpeg strftime: YYYYMMDD_HHMMSS.mp4 (local time). */
+/**
+ * ffmpeg writes in-progress segments as YYYYMMDD_HHMMSSZ.mp4 in UTC (so it needs no system tzdata);
+ * once finished they are renamed to YYYYMMDD_HHMMSS.mp4 in local time (Node has its own tz data).
+ */
 function parseStart(file: string): number {
-  const m = path.basename(file).match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})\.mp4$/);
+  const m = path.basename(file).match(/^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(Z?)\.mp4$/);
   if (!m) return fs.statSync(file).mtimeMs;
-  const [, y, mo, d, h, mi, s] = m.map(Number);
-  return new Date(y, mo - 1, d, h, mi, s).getTime();
+  const [y, mo, d, h, mi, s] = m.slice(1, 7).map(Number);
+  return m[7] ? Date.UTC(y, mo - 1, d, h, mi, s) : new Date(y, mo - 1, d, h, mi, s).getTime();
 }
+
+const localName = (t: number): string => {
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`;
+};
 
 function registerSegment(channel: number, file: string): void {
   if (!fs.existsSync(file)) return;
   const { size } = fs.statSync(file);
   if (size === 0) return void fs.unlinkSync(file);
-  addSegment(channel, file, parseStart(file), size);
+  const startedAt = parseStart(file);
+  if (file.endsWith('Z.mp4')) {
+    const renamed = path.join(path.dirname(file), localName(startedAt));
+    // Keep the UTC name if the local one is taken (e.g. the repeated hour when DST ends).
+    if (!fs.existsSync(renamed)) {
+      fs.renameSync(file, renamed);
+      file = renamed;
+    }
+  }
+  addSegment(channel, file, startedAt, size);
 }
 
 class ChannelRecorder {
@@ -59,13 +77,13 @@ class ChannelRecorder {
       '-segment_atclocktime', '1', '-reset_timestamps', '1', '-strftime', '1',
       '-segment_format', 'mp4', '-segment_format_options', 'movflags=+faststart',
       '-segment_list', 'pipe:1', '-segment_list_type', 'flat',
-      path.join(dir, '%Y%m%d_%H%M%S.mp4'),
+      path.join(dir, '%Y%m%d_%H%M%SZ.mp4'),
     ];
 
     this.state = 'starting';
     this.since = Date.now();
     this.stderrTail = [];
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TZ: 'UTC' } });
     this.proc = proc;
 
     // ffmpeg prints each finished segment's filename to stdout.
