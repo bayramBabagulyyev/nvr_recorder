@@ -9,4 +9,5 @@ services:
       DATA_DIR: /data
       TZ: Etc/UTC # set to your timezone (used for file names)
     volumes:
-      - ./data:/data
+      # Host folder for config, database and recordings (set DATA_PATH in .env)
+      - ${DATA_PATH:-./data}:/data
